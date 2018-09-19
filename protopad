@@ -32,6 +32,16 @@ def parse_proto_or_fail(proto, binary, message):
         fail(1, message)
 
 
+def get_json_name(pyname):
+    if "_" not in pyname:
+        return pyname
+
+    words = pyname.split("_")
+    late_words = [w.capitalize() for w in words[1:]]
+    words = [words[0]] + late_words
+    return "".join(words)
+
+
 def protopad(args):
     app = Protopad(args["verbose"])
 
@@ -136,6 +146,8 @@ class Protopad:
             infile, outfile, empty, recent, editor_command):
         filename = TEMPFILE_PATH if recent else infile
         base = read_any_input(message_desc, internal_desc, filename) if filename else create_template_message(message_desc, empty)
+
+        # TODO: Use create_template_message for empty binary entries.
         json = proto_to_json(base, internal_desc, including_default_value_fields=True)
 
         self.log("Launching editor... (quit editor when finished)")
@@ -214,6 +226,7 @@ class Protopad:
         self.log("")
         self.generate_module_roots()
 
+
     def generate_module_roots(self):
         self.log("Generating module roots...")
         dirs = []
@@ -250,16 +263,6 @@ def json_to_proto(json, message_desc, internal_desc):
     return base
 
 
-def temp_json_name(pyname):
-    if "_" not in pyname:
-        return pyname
-
-    words = pyname.split("_")
-    late_words = [w.capitalize() for w in words[1:]]
-    words = [words[0]] + late_words
-    return "".join(words)
-
-
 def proto_to_json(message, internal_desc, including_default_value_fields=False):
     json_encoded = json_format.MessageToJson(
             message,
@@ -272,7 +275,7 @@ def proto_to_json(message, internal_desc, including_default_value_fields=False):
 
     def unpack_internals(desc, message, obj):
         for field in desc.fields:
-            json_field_name = temp_json_name(field.name)
+            json_field_name = get_json_name(field.name)
             if field.type == FieldDescriptor.TYPE_BYTES:
                 internal_bytes = getattr(message, field.name)
                 obj.pop(json_field_name)
@@ -298,7 +301,7 @@ def extract_internal_protos(json_string, base_message, internal_desc):
     def extract_internals(desc, obj, internals, path):
         for field in desc.fields:
             field_path = path + [field.name]
-            json_field_name = temp_json_name(field.name)
+            json_field_name = get_json_name(field.name)
             if field.type == FieldDescriptor.TYPE_BYTES:
                 internal_obj = obj.pop(json_field_name)
                 internal_json = json.dumps(internal_obj)
