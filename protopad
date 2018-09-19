@@ -6,7 +6,6 @@ import argparse
 import pkgutil
 import json
 import os
-import pprint
 import shutil
 import subprocess
 import sys
@@ -14,6 +13,10 @@ import sys
 
 DOTFILE_PATH = os.path.expanduser("~/.protopad/config.json")
 TEMPFILE_PATH = os.path.expanduser("~/.protopad/temp.json")
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 
 def protopad(args):
@@ -29,6 +32,10 @@ def protopad(args):
     elif task == "proto":
         app.read_to_proto(message_type_descriptor, internal_type_descriptor, args.get("file"), args.get("output"))
     elif task == "edit":
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            eprint("Cannot use terminal pipes with the edit command")
+            eprint("Use the `file` and `--output` parameters instead")
+            exit(1)
         app.edit_message(message_type_descriptor, internal_type_descriptor, args.get("file"), args.get("output"), args["empty"], args["recent"])
     elif task == "register":
         if args["list"]:
@@ -47,7 +54,7 @@ class Protopad:
 
     def log(self, text, always=False):
         if self.verbose or always:
-            print(text)
+            eprint(text)
 
     def get_message_type_descriptor(self, message_type_name):
         split_name = message_type_name.rsplit(".", 1)
@@ -72,8 +79,8 @@ class Protopad:
                 continue
 
         if not options:
-            print("Failed to load any message types at all.")
-            print("Check your registered paths with `protopad register --list`")
+            eprint("Failed to load any message types at all.")
+            eprint("Check your registered paths with `protopad register --list`")
             exit(1)
 
         selection = [option
@@ -81,13 +88,13 @@ class Protopad:
                 if option[0] == message_type_name and prefix in option[2]]
 
         if not selection:
-            print(f"Unknown message type '{message_type_name}'")
+            eprint(f"Unknown message type '{message_type_name}'")
             exit(1)
         elif len(selection) > 1:
-            print(f"Message type '{message_type_name}' is ambiguous. Possibilities are:")
+            eprint(f"Message type '{message_type_name}' is ambiguous. Possibilities are:")
             for (name, _, module_name) in selection:
-                print(f"- {module_name}.{name}")
-            print(f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
+                eprint(f"- {module_name}.{name}")
+            eprint(f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
             exit(1)
 
         (_, desc, _) = selection[0]
@@ -194,7 +201,7 @@ class Protopad:
                         self.log(f"      (protoc) {stdoutdata}")
         self.log("Done.")
 
-        print()
+        self.log("")
         self.generate_module_roots()
 
     def generate_module_roots(self):
