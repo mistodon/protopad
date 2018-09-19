@@ -20,14 +20,16 @@ def protopad(args):
     app = Protopad(args["verbose"])
 
     message_type_descriptor = app.get_message_type_descriptor(args["type"]) if "type" in args else None
+    internal_type = args.get("internal_type")
+    internal_type_descriptor = app.get_message_type_descriptor(internal_type) if internal_type else None
 
     task = args["task"]
     if task == "json":
-        app.read_to_json(message_type_descriptor, args.get("file"), args.get("output"))
+        app.read_to_json(message_type_descriptor, internal_type_descriptor, args.get("file"), args.get("output"))
     elif task == "proto":
-        app.read_to_proto(message_type_descriptor, args.get("file"), args.get("output"))
+        app.read_to_proto(message_type_descriptor, internal_type_descriptor, args.get("file"), args.get("output"))
     elif task == "edit":
-        app.edit_message(message_type_descriptor, args.get("file"), args.get("output"), args["empty"], args["recent"])
+        app.edit_message(message_type_descriptor, internal_type_descriptor, args.get("file"), args.get("output"), args["empty"], args["recent"])
     elif task == "register":
         if args["list"]:
             app.list_registered_paths()
@@ -82,8 +84,8 @@ class Protopad:
         return desc
 
 
-    def read_to_json(self, message_type_descriptor, infile, outfile):
-        base = read_any_input(message_type_descriptor, infile)
+    def read_to_json(self, message_type_descriptor, internal_type_descriptor, infile, outfile):
+        base = read_any_input(message_type_descriptor, internal_type_descriptor, infile)
         result = json_format.MessageToJson(base)
 
         if outfile:
@@ -93,8 +95,8 @@ class Protopad:
             print(result)
 
 
-    def read_to_proto(self, message_type_descriptor, infile, outfile):
-        base = read_any_input(message_type_descriptor, infile)
+    def read_to_proto(self, message_type_descriptor, internal_type_descriptor, infile, outfile):
+        base = read_any_input(message_type_descriptor, internal_type_descriptor, infile)
         result = base.SerializeToString()
 
         if outfile:
@@ -104,9 +106,9 @@ class Protopad:
             sys.stdout.buffer.write(result)
 
 
-    def edit_message(self, message_type_descriptor, infile, outfile, empty, recent):
+    def edit_message(self, message_type_descriptor, internal_type_descriptor, infile, outfile, empty, recent):
         filename = TEMPFILE_PATH if recent else infile
-        base = read_any_input(message_type_descriptor, filename) if filename else create_template_message(message_type_descriptor, empty)
+        base = read_any_input(message_type_descriptor, internal_type_descriptor, filename) if filename else create_template_message(message_type_descriptor, empty)
         json = json_format.MessageToJson(base, including_default_value_fields=True)
 
         self.log("Launching editor... (quit editor when finished)")
@@ -196,7 +198,7 @@ class Protopad:
         self.log("Done.")
 
 
-def read_any_input(message_type_descriptor, filename=None):
+def read_any_input(message_type_descriptor, internal_type_descriptor, filename=None):
     if filename:
         with open(filename, "rb") as f:
             data = f.read()
@@ -206,11 +208,57 @@ def read_any_input(message_type_descriptor, filename=None):
     base = message_type_descriptor._concrete_class()
 
     try:
-        json_format.Parse(data, base)
+        (doctored_json, internals) = extract_internal_protos(data, base, internal_type_descriptor)
+        json_format.Parse(doctored_json, base)
+        if internals:
+            reinstate_internals(internals, base)
     except json_format.ParseError:
         base.ParseFromString(data)
 
     return base
+
+
+def extract_internal_protos(json_string, base_message, internal_type_descriptor):
+    if not internal_type_descriptor:
+        return (json_string, None)
+
+    def temp_json_name(pyname):
+        if "_" not in pyname:
+            return pyname
+
+        words = pyname.split("_")
+        late_words = [w.capitalize() for w in words[1:]]
+        words = [words[0]] + late_words
+        return "".join(words)
+
+    def extract_internals(desc, obj, internals, path):
+        for field in desc.fields:
+            field_path = path + [field.name]
+            json_field_name = temp_json_name(field.name)
+            if field.type == FieldDescriptor.TYPE_BYTES:
+                internal_obj = obj.pop(json_field_name)
+                internal_json = json.dumps(internal_obj)
+                internal_base = internal_type_descriptor._concrete_class()
+                internal_message = json_format.Parse(internal_json, internal_base)
+                internals.append((field_path, internal_message))
+            elif field.message_type:
+                extract_internals(field.message_type, obj[json_field_name], internals, field_path)
+
+    desc = base_message.DESCRIPTOR
+    data = json.loads(json_string)
+    internals = []
+    extract_internals(desc, data, internals, [])
+
+    return (json.dumps(data), internals)
+
+
+def reinstate_internals(internals, message):
+    for path, internal_message in internals:
+        binary = internal_message.SerializeToString()
+        target = message
+        for field_name in path[:-1]:
+            target = getattr(target, field_name)
+        setattr(target, path[-1], binary)
 
 
 def interactive_edit_message(message_json):
@@ -232,18 +280,19 @@ def create_template_message(message_descriptor, empty):
     base = message_class()
     if not empty:
         for field in message_descriptor.fields:
-            if field.label == FieldDescriptor.LABEL_REPEATED and field.message_type:
-                placeholder_value = create_template_message(field.message_type, False)
-                field_container = getattr(base, field.name, None)
-                try:
-                    # Repeated type
-                    dest = field_container.add()
-                    dest.MergeFrom(placeholder_value)
-                except AttributeError:
-                    # Map type - leave blank for now
-                    pass
-            elif field.message_type:
-                getattr(base, field.name).MergeFrom(create_template_message(field.message_type, False))
+            if field.message_type:
+                if field.label == FieldDescriptor.LABEL_REPEATED:
+                    placeholder_value = create_template_message(field.message_type, False)
+                    field_container = getattr(base, field.name, None)
+                    try:
+                        # Repeated type
+                        dest = field_container.add()
+                        dest.MergeFrom(placeholder_value)
+                    except AttributeError:
+                        # Map type - leave blank for now
+                        pass
+                else:
+                    getattr(base, field.name).MergeFrom(create_template_message(field.message_type, False))
     return base
 
 
@@ -274,6 +323,8 @@ if __name__ == "__main__":
             "file", help="the file to read, or stdin if not specified", nargs="?")
     json_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
+    json_cmd_parser.add_argument(
+            "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     proto_cmd_parser = subparsers.add_parser(
             "proto", help="read a JSON or protobuf message and output protobuf")
@@ -284,6 +335,8 @@ if __name__ == "__main__":
             "file", help="the file to read, or stdin if not specified", nargs="?")
     proto_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
+    proto_cmd_parser.add_argument(
+            "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     edit_cmd_parser = subparsers.add_parser(
             "edit", help="create or edit a protobuf message in an editor")
@@ -302,6 +355,8 @@ if __name__ == "__main__":
             action="store_true")
     edit_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
+    edit_cmd_parser.add_argument(
+            "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     register_cmd_parser = subparsers.add_parser(
             "register", help="register a folder of protobuf definitions")
