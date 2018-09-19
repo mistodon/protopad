@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+
+from google.protobuf import json_format
+import argparse
+import pkgutil
+import json
+import os
+import pprint
+import subprocess
+
+
+DOTFILE_PATH = os.path.expanduser("~/.protopad/config.json")
+
+
+def do_stuff(args):
+    register_path = args.get("path")
+    if register_path:
+        register_protos(register_path)
+    else:
+        create_proto(args["proto"])
+
+
+def register_protos(path):
+    with open(DOTFILE_PATH, "r") as f:
+        config = json.load(f)
+
+    paths = set(config.get("paths", []))
+    paths.add(path)
+    paths = config["paths"] = list(paths)
+
+    with open(DOTFILE_PATH, "w") as f:
+        json.dump(config, f)
+
+    recompile_protos(paths)
+
+
+def recompile_protos(paths):
+    output_dir = os.path.expanduser("~/.protopad/compiled")
+    for path in paths:
+        files = list_all_files(path)
+        for filename in files:
+            stdoutdata = subprocess.getoutput(f"protoc -I {path} --python_out {output_dir} {filename}")
+            if stdoutdata.strip():
+                print(stdoutdata)
+
+
+def list_all_files(path):
+    files = []
+    for (dirpath, _, filenames) in os.walk(path):
+        for f in filenames:
+            files.append(os.path.join(dirpath, f))
+    return files
+
+
+def create_proto(proto_type):
+    import_path = os.path.expanduser("~/.protopad/compiled")
+    options = []
+    for loader, module_name, is_pkg in pkgutil.walk_packages([import_path]):
+        try:
+            module = loader.find_module(module_name).load_module(module_name)
+            descriptor = getattr(module, "DESCRIPTOR", None)
+            if descriptor:
+                for message_type, message_desc in descriptor.message_types_by_name.items():
+                    options.append((message_type, message_desc, module_name))
+        except AssertionError:
+            continue
+
+    selection = [option for option in options if option[0] == proto_type]
+    if not selection:
+        print(f"Unknown message type '{proto_type}'")
+        exit(1)
+
+    sel = selection[0]
+    message = sel[1]._concrete_class()
+    json = json_format.MessageToJson(message, including_default_value_fields=True)
+    print(json)
+
+
+def ensure_dotfiles_exist():
+    os.makedirs(os.path.expanduser("~/.protopad/compiled"), exist_ok=True)
+    if not os.path.exists(DOTFILE_PATH):
+        with open(DOTFILE_PATH, "w") as f:
+            json.dump({}, f)
+
+
+if __name__ == "__main__":
+    ensure_dotfiles_exist()
+    parser = argparse.ArgumentParser(
+            prog="protopad",
+            usage="create protobuf files from the terminal")
+
+    parser.add_argument("--proto", help="the protobuf message type")
+
+    subparsers = parser.add_subparsers(help="subcommands")
+
+    register_parser = subparsers.add_parser(
+            "register", help="register a folder of protobuf definitions")
+    register_parser.add_argument(
+            "path", help="path to a folder containing protobuf definitions (searched recursively)")
+
+    args = vars(parser.parse_args())
+    if len(args) == 1 and not args.get("proto"):
+        parser.print_help()
+        exit(2)
+    else:
+        do_stuff(args)
