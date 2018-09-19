@@ -86,7 +86,7 @@ class Protopad:
 
     def read_to_json(self, message_type_descriptor, internal_type_descriptor, infile, outfile):
         base = read_any_input(message_type_descriptor, internal_type_descriptor, infile)
-        result = json_format.MessageToJson(base)
+        result = proto_to_json(base, internal_type_descriptor)
 
         if outfile:
             with open(outfile, "w") as f:
@@ -109,7 +109,7 @@ class Protopad:
     def edit_message(self, message_type_descriptor, internal_type_descriptor, infile, outfile, empty, recent):
         filename = TEMPFILE_PATH if recent else infile
         base = read_any_input(message_type_descriptor, internal_type_descriptor, filename) if filename else create_template_message(message_type_descriptor, empty)
-        json = json_format.MessageToJson(base, including_default_value_fields=True)
+        json = proto_to_json(base, internal_type_descriptor, including_default_value_fields=True)
 
         self.log("Launching editor... (quit editor when finished)")
         edited_json = interactive_edit_message(json)
@@ -207,7 +207,7 @@ def read_any_input(message_type_descriptor, internal_type_descriptor, filename=N
 
     try:
         return json_to_proto(data, message_type_descriptor, internal_type_descriptor)
-    except json_format.ParseError:
+    except (json_format.ParseError, json.decoder.JSONDecodeError):
         base = message_type_descriptor._concrete_class()
         base.ParseFromString(data)
         return base
@@ -222,18 +222,49 @@ def json_to_proto(json, message_type_descriptor, internal_type_descriptor):
     return base
 
 
+def temp_json_name(pyname):
+    if "_" not in pyname:
+        return pyname
+
+    words = pyname.split("_")
+    late_words = [w.capitalize() for w in words[1:]]
+    words = [words[0]] + late_words
+    return "".join(words)
+
+
+def proto_to_json(message, internal_type_descriptor, including_default_value_fields=False):
+    json_encoded = json_format.MessageToJson(
+            message,
+            including_default_value_fields=including_default_value_fields)
+
+    if internal_type_descriptor is None:
+        return json_encoded
+
+    data = json.loads(json_encoded)
+
+    def unpack_internals(desc, message, obj):
+        for field in desc.fields:
+            json_field_name = temp_json_name(field.name)
+            if field.type == FieldDescriptor.TYPE_BYTES:
+                internal_bytes = getattr(message, field.name)
+                obj.pop(json_field_name)
+                internal_message = internal_type_descriptor._concrete_class()
+                internal_message.ParseFromString(internal_bytes)
+                internal_message_json = json_format.MessageToJson(
+                        internal_message,
+                        including_default_value_fields=including_default_value_fields)
+                obj[json_field_name] = json.loads(internal_message_json)
+            elif field.message_type:
+                unpack_internals(field.message_type, getattr(message, field.name), obj[json_field_name])
+
+    unpack_internals(message.DESCRIPTOR, message, data)
+
+    return json.dumps(data, indent=2)
+
+
 def extract_internal_protos(json_string, base_message, internal_type_descriptor):
-    if not internal_type_descriptor:
+    if internal_type_descriptor is None:
         return (json_string, None)
-
-    def temp_json_name(pyname):
-        if "_" not in pyname:
-            return pyname
-
-        words = pyname.split("_")
-        late_words = [w.capitalize() for w in words[1:]]
-        words = [words[0]] + late_words
-        return "".join(words)
 
     def extract_internals(desc, obj, internals, path):
         for field in desc.fields:
