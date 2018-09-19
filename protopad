@@ -298,7 +298,7 @@ if __name__ == "__main__":
             help="use a completely empty message instead of the default",
             action="store_true")
     edit_group.add_argument(
-            "--recent", help="use the most recently edit as a templte",
+            "--recent", help="use the most recent edit as a template",
             action="store_true")
     edit_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
