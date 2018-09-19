@@ -115,7 +115,7 @@ class Protopad:
         edited_json = interactive_edit_message(json)
         self.log("Done.")
 
-        resulting_message = json_format.Parse(edited_json, message_type_descriptor._concrete_class())
+        resulting_message = json_to_proto(edited_json, message_type_descriptor, internal_type_descriptor)
         result = resulting_message.SerializeToString()
 
         if outfile:
@@ -205,16 +205,20 @@ def read_any_input(message_type_descriptor, internal_type_descriptor, filename=N
     else:
         data = sys.stdin.read()
 
-    base = message_type_descriptor._concrete_class()
-
     try:
-        (doctored_json, internals) = extract_internal_protos(data, base, internal_type_descriptor)
-        json_format.Parse(doctored_json, base)
-        if internals:
-            reinstate_internals(internals, base)
+        return json_to_proto(data, message_type_descriptor, internal_type_descriptor)
     except json_format.ParseError:
+        base = message_type_descriptor._concrete_class()
         base.ParseFromString(data)
+        return base
 
+
+def json_to_proto(json, message_type_descriptor, internal_type_descriptor):
+    base = message_type_descriptor._concrete_class()
+    (doctored_json, internals) = extract_internal_protos(json, base, internal_type_descriptor)
+    json_format.Parse(doctored_json, base)
+    if internals:
+        reinstate_internals(internals, base)
     return base
 
 
