@@ -2,6 +2,7 @@
 
 from google.protobuf import json_format
 from google.protobuf.descriptor import FieldDescriptor
+from google.protobuf.message import DecodeError
 import argparse
 import pkgutil
 import json
@@ -19,6 +20,18 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
+def fail(status, message):
+    eprint(message)
+    exit(status)
+
+
+def parse_proto_or_fail(proto, binary, message):
+    try:
+        proto.ParseFromString(binary)
+    except DecodeError:
+        fail(1, message)
+
+
 def protopad(args):
     app = Protopad(args["verbose"])
 
@@ -33,9 +46,8 @@ def protopad(args):
         app.read_to_proto(message_desc, internal_desc, args.get("file"), args.get("output"))
     elif command == "edit":
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
-            eprint("Cannot use terminal pipes with the edit command")
-            eprint("Use the `file` and `--output` parameters instead")
-            exit(1)
+            fail(1, "Cannot use terminal pipes with the edit command.\n"
+                    "Use the `file` and `--output` parameters instead.")
         app.edit_message(message_desc, internal_desc, args.get("file"), args.get("output"), args["empty"], args["recent"], args.get("editor"))
     elif command == "register":
         if args["list"]:
@@ -79,23 +91,20 @@ class Protopad:
                 continue
 
         if not options:
-            eprint("Failed to load any message types at all.")
-            eprint("Check your registered paths with `protopad register --list`")
-            exit(1)
+            fail(1, "Failed to load any message types at all."
+                    "Check your registered paths with `protopad register --list`")
 
         selection = [option
                 for option in options
                 if option[0] == message_type_name and prefix in option[2]]
 
         if not selection:
-            eprint(f"Unknown message type '{message_type_name}'")
-            exit(1)
+            fail(1, f"Unknown message type '{message_type_name}'")
         elif len(selection) > 1:
             eprint(f"Message type '{message_type_name}' is ambiguous. Possibilities are:")
             for (name, _, module_name) in selection:
                 eprint(f"- {module_name}.{name}")
-            eprint(f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
-            exit(1)
+            fail(1, f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
 
         (_, desc, _) = selection[0]
         return desc
@@ -227,7 +236,8 @@ def read_any_input(message_desc, internal_desc, filename=None):
         return json_to_proto(data, message_desc, internal_desc)
     except:
         base = message_desc._concrete_class()
-        base.ParseFromString(data)
+        parse_proto_or_fail(base, data,
+                f"Failed to decode input as {message_desc.name}")
         return base
 
 
@@ -267,7 +277,8 @@ def proto_to_json(message, internal_desc, including_default_value_fields=False):
                 internal_bytes = getattr(message, field.name)
                 obj.pop(json_field_name)
                 internal_message = internal_desc._concrete_class()
-                internal_message.ParseFromString(internal_bytes)
+                parse_proto_or_fail(internal_message, internal_bytes,
+                        f"Failed to decode internal type as {internal_desc.name}.")
                 internal_message_json = json_format.MessageToJson(
                         internal_message,
                         including_default_value_fields=including_default_value_fields)
