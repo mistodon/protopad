@@ -375,7 +375,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
             prog="protopad",
-            usage="create protobuf files from the terminal")
+            description="create protobuf files from the terminal")
 
     parser.add_argument(
             "--verbose", "-v", help="enable verbose logging", action="store_true")

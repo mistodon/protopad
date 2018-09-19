@@ -4,10 +4,10 @@
     -   "Fixed" by detecting pipes and exiting with an error
 2.  [x] Find an elegant way of specifying an internal DataSet type
     -   Elegant enough...
-3.  [ ] Look for common exceptions and handle them gracefully
-    -   [ ] Wrong external type specified
-    -   [ ] Wrong internal type specified
+3.  [x] Look for common exceptions and handle them gracefully
+    -   [x] Wrong external type specified
+    -   [x] Wrong internal type specified
 4.  [ ] Add unit tests
 5.  [x] Handle ambiguity in types
 6.  [x] Ensure stdout and stderr are being used properly
-7.  [ ] Write README documentation
+7.  [x] Write README documentation
