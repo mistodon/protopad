@@ -1,23 +1,47 @@
 #!/usr/bin/env python3
 
 from google.protobuf import json_format
+from google.protobuf.descriptor import FieldDescriptor
 import argparse
 import pkgutil
 import json
 import os
 import pprint
 import subprocess
+import sys
+import tempfile
 
 
 DOTFILE_PATH = os.path.expanduser("~/.protopad/config.json")
 
 
-def do_stuff(args):
-    register_path = args.get("path")
-    if register_path:
-        register_protos(register_path)
+def protopad(args):
+    task = args["task"]
+    if task == "create":
+        create_proto(args["type"], args["empty"], args["output"])
+    elif task == "read":
+        read_proto(args["type"], args.get("file"))
+    elif task == "register":
+        register_protos(args["path"])
     else:
-        create_proto(args["proto"])
+        assert False, "Unreachable code!"
+
+
+def read_proto(message_type, filename):
+    source = read_file_or_stdin(filename)
+    desc = get_message_type_descriptor(message_type)
+    base = desc._concrete_class()
+    base.ParseFromString(source)
+    json = json_format.MessageToJson(base)
+    print(json)
+
+
+def read_file_or_stdin(filename):
+    if filename:
+        with open(filename, "rb") as f:
+            return f.read()
+    else:
+        return sys.stdin.read()
 
 
 def register_protos(path):
@@ -52,7 +76,21 @@ def list_all_files(path):
     return files
 
 
-def create_proto(proto_type):
+def create_proto(proto_type, empty, output_file):
+    desc = get_message_type_descriptor(proto_type)
+    message = create_template_message(desc, empty)
+    json = json_format.MessageToJson(message, including_default_value_fields=True)
+    edited_json = interactive_edit_message(json)
+    resulting_message = json_format.Parse(edited_json, desc._concrete_class())
+    result = resulting_message.SerializeToString()
+    if output_file:
+        with open(output_file, "wb") as f:
+            f.write(result)
+    else:
+        print(result)
+
+
+def get_message_type_descriptor(message_type_name):
     import_path = os.path.expanduser("~/.protopad/compiled")
     options = []
     for loader, module_name, is_pkg in pkgutil.walk_packages([import_path]):
@@ -65,15 +103,52 @@ def create_proto(proto_type):
         except AssertionError:
             continue
 
-    selection = [option for option in options if option[0] == proto_type]
+    selection = [option for option in options if option[0] == message_type_name]
     if not selection:
-        print(f"Unknown message type '{proto_type}'")
+        print(f"Unknown message type '{message_type_name}'")
         exit(1)
 
     sel = selection[0]
-    message = sel[1]._concrete_class()
-    json = json_format.MessageToJson(message, including_default_value_fields=True)
-    print(json)
+    return sel[1]
+
+
+def interactive_edit_message(message_json):
+    editor = os.environ["EDITOR"]
+    temp_dir = tempfile.mkdtemp()
+    filepath = os.path.join(temp_dir, "protopad.json")
+
+    with open(filepath, "w") as f:
+        f.write(message_json)
+
+    result = subprocess.run(f"{editor} {filepath}", shell=True)
+
+    with open(filepath, "r") as f:
+        edited_result = f.read()
+
+    os.remove(filepath)
+    os.rmdir(temp_dir)
+
+    return edited_result
+
+
+def create_template_message(message_descriptor, empty):
+    message_class = message_descriptor._concrete_class
+    base = message_class()
+    if not empty:
+        for field in message_descriptor.fields:
+            if field.label == FieldDescriptor.LABEL_REPEATED and field.message_type:
+                placeholder_value = create_template_message(field.message_type, False)
+                field_container = getattr(base, field.name, None)
+                try:
+                    # Repeated type
+                    dest = field_container.add()
+                    dest.MergeFrom(placeholder_value)
+                except AttributeError:
+                    # Map type - leave blank for now
+                    pass
+            elif field.message_type:
+                getattr(base, field.name).MergeFrom(create_template_message(field.message_type, False))
+    return base
 
 
 def ensure_dotfiles_exist():
@@ -89,18 +164,34 @@ if __name__ == "__main__":
             prog="protopad",
             usage="create protobuf files from the terminal")
 
-    parser.add_argument("--proto", help="the protobuf message type")
-
     subparsers = parser.add_subparsers(help="subcommands")
+
+    create_parser = subparsers.add_parser(
+            "create", help="create a new protobuf message interactively")
+    create_parser.set_defaults(task="create")
+    create_parser.add_argument(
+            "type", help="the name of the protobuf message type")
+    create_parser.add_argument(
+            "--empty", "-e", action="store_true", help="default all nullable fields to null in template")
+    create_parser.add_argument(
+            "--output", "-o", help="the file to write to")
+
+    read_parser = subparsers.add_parser(
+            "read", help="read a protobuf message and output JSON")
+    read_parser.set_defaults(task="read")
+    read_parser.add_argument(
+            "type", help="the name of the protobuf message type")
+    read_parser.add_argument(
+            "file", help="the file to read, or stdin if not specified", nargs="?")
 
     register_parser = subparsers.add_parser(
             "register", help="register a folder of protobuf definitions")
+    register_parser.set_defaults(task="register")
     register_parser.add_argument(
             "path", help="path to a folder containing protobuf definitions (searched recursively)")
 
     args = vars(parser.parse_args())
-    if len(args) == 1 and not args.get("proto"):
+    if not args:
         parser.print_help()
         exit(2)
-    else:
-        do_stuff(args)
+    protopad(args)
