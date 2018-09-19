@@ -7,6 +7,7 @@ import pkgutil
 import json
 import os
 import pprint
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -15,101 +16,200 @@ import tempfile
 DOTFILE_PATH = os.path.expanduser("~/.protopad/config.json")
 
 
+class Protopad:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+
+    def log(self, text, always=False):
+        if self.verbose or always:
+            print(text)
+
+    def get_message_type_descriptor(self, message_type_name):
+        import_path = os.path.expanduser("~/.protopad/compiled")
+        options = []
+        for loader, module_name, is_pkg in pkgutil.walk_packages([import_path]):
+            try:
+                self.log(f"Loading module: {module_name}")
+                module = loader.find_module(module_name).load_module(module_name)
+                descriptor = getattr(module, "DESCRIPTOR", None)
+                if descriptor:
+                    for message_type, message_desc in descriptor.message_types_by_name.items():
+                        self.log(f"  Found message type: {message_type}")
+                        options.append((message_type, message_desc, module_name))
+                else:
+                    self.log(f"  No descriptor in module.")
+            except AssertionError:
+                self.log(f"  (Module {module_name} could not be loaded.)")
+                continue
+
+        if not options:
+            print("Failed to load any message types at all.")
+            print("Check your registered paths with `protopad register --list`")
+            exit(1)
+
+        selection = [option for option in options if option[0] == message_type_name]
+        if not selection:
+            print(f"Unknown message type '{message_type_name}'")
+            exit(1)
+        elif len(selection) > 1:
+            print(f"Message type '{message_type_name}' is ambiguous. (TODO: allow specifying which to use)")
+            exit(1)
+
+        (_, desc, _) = selection[0]
+        return desc
+
+
+    def read_to_json(self, message_type_descriptor, infile, outfile):
+        base = read_any_input(message_type_descriptor, infile)
+        result = json_format.MessageToJson(base)
+
+        if outfile:
+            with open(outfile, "w") as f:
+                f.write(result)
+        else:
+            print(result)
+
+
+    def read_to_proto(self, message_type_descriptor, infile, outfile):
+        base = read_any_input(message_type_descriptor, infile)
+        result = base.SerializeToString()
+
+        if outfile:
+            with open(outfile, "wb") as f:
+                f.write(result)
+        else:
+            sys.stdout.buffer.write(result)
+
+
+    def edit_message(self, message_type_descriptor, infile, outfile, empty):
+        base = read_any_input(message_type_descriptor, infile) if infile else create_template_message(message_type_descriptor, empty)
+        json = json_format.MessageToJson(base, including_default_value_fields=True)
+
+        self.log("Launching editor... (quit editor when finished)")
+        edited_json = interactive_edit_message(json)
+        self.log("Done.")
+
+        resulting_message = json_format.Parse(edited_json, message_type_descriptor._concrete_class())
+        result = resulting_message.SerializeToString()
+
+        if outfile:
+            with open(outfile, "wb") as f:
+                f.write(result)
+        else:
+            sys.stdout.buffer.write(result)
+
+    def list_registered_paths(self):
+        with open(DOTFILE_PATH, "r") as f:
+            config = json.load(f)
+
+        paths = set(config.get("paths", []))
+        for path in paths:
+            print(path)
+
+
+    def register_proto_path(self, path, remove):
+        assert path is not None
+        action = "Unregistering" if remove else "Registering"
+        self.log(f"{action} path: {path}")
+
+        with open(DOTFILE_PATH, "r") as f:
+            config = json.load(f)
+
+        paths = set(config.get("paths", []))
+
+        if remove:
+            paths.remove(path)
+        else:
+            paths.add(path)
+
+        self.log("Updated paths:")
+        for path in paths:
+            self.log(f"- {path}")
+
+        paths = config["paths"] = list(paths)
+
+        with open(DOTFILE_PATH, "w") as f:
+            json.dump(config, f)
+
+        self.recompile_protos()
+
+
+    def recompile_protos(self):
+        self.log("Recompiling proto definitions...")
+        with open(DOTFILE_PATH, "r") as f:
+            config = json.load(f)
+
+        paths = set(config.get("paths", []))
+
+        output_dir = os.path.expanduser("~/.protopad/compiled")
+        shutil.rmtree(output_dir, ignore_errors=True)
+        os.makedirs(output_dir)
+
+        for path in paths:
+            for (dirpath, _, filenames) in os.walk(path):
+                self.log(f"  Compiling modules in {dirpath}")
+                for filename in filenames:
+                    filename = os.path.join(dirpath, filename)
+                    command = f"protoc -I {path} --python_out {output_dir} {filename}"
+                    self.log(f"    Executing: {command}")
+                    stdoutdata = subprocess.getoutput(command)
+
+                    if stdoutdata:
+                        self.log(f"      (protoc) {stdoutdata}")
+        self.log("Done.")
+
+        print()
+        self.generate_module_roots()
+
+    def generate_module_roots(self):
+        self.log("Generating module roots...")
+        dirs = []
+        compiled_dir = os.path.expanduser("~/.protopad/compiled")
+        for (dirpath, _, _) in os.walk(compiled_dir):
+            self.log(f"  Creating module root in {dirpath}")
+            rootpath = os.path.join(dirpath, "__init__.py")
+            open(rootpath, "a").close()
+        self.log("Done.")
+
+
 def protopad(args):
+    app = Protopad(args["verbose"])
+
+    message_type_descriptor = app.get_message_type_descriptor(args["type"]) if "type" in args else None
+
     task = args["task"]
-    if task == "create":
-        create_proto(args["type"], args["empty"], args["output"])
-    elif task == "read":
-        read_proto(args["type"], args.get("file"))
+    if task == "json":
+        app.read_to_json(message_type_descriptor, args.get("file"), args.get("output"))
+    elif task == "proto":
+        app.read_to_proto(message_type_descriptor, args.get("file"), args.get("output"))
+    elif task == "edit":
+        app.edit_message(message_type_descriptor, args.get("file"), args.get("output"), args["empty"])
     elif task == "register":
-        register_protos(args["path"])
+        if args["list"]:
+            app.list_registered_paths()
+        elif args["recompile"]:
+            app.recompile_protos()
+        else:
+            app.register_proto_path(args["path"], args["remove"])
     else:
         assert False, "Unreachable code!"
 
 
-def read_proto(message_type, filename):
-    source = read_file_or_stdin(filename)
-    desc = get_message_type_descriptor(message_type)
-    base = desc._concrete_class()
-    base.ParseFromString(source)
-    json = json_format.MessageToJson(base)
-    print(json)
-
-
-def read_file_or_stdin(filename):
+def read_any_input(message_type_descriptor, filename=None):
     if filename:
         with open(filename, "rb") as f:
-            return f.read()
+            data = f.read()
     else:
-        return sys.stdin.read()
+        data = sys.stdin.read()
 
+    base = message_type_descriptor._concrete_class()
 
-def register_protos(path):
-    with open(DOTFILE_PATH, "r") as f:
-        config = json.load(f)
+    try:
+        json_format.Parse(data, base)
+    except json_format.ParseError:
+        base.ParseFromString(data)
 
-    paths = set(config.get("paths", []))
-    paths.add(path)
-    paths = config["paths"] = list(paths)
-
-    with open(DOTFILE_PATH, "w") as f:
-        json.dump(config, f)
-
-    recompile_protos(paths)
-
-
-def recompile_protos(paths):
-    output_dir = os.path.expanduser("~/.protopad/compiled")
-    for path in paths:
-        files = list_all_files(path)
-        for filename in files:
-            stdoutdata = subprocess.getoutput(f"protoc -I {path} --python_out {output_dir} {filename}")
-            if stdoutdata.strip():
-                print(stdoutdata)
-
-
-def list_all_files(path):
-    files = []
-    for (dirpath, _, filenames) in os.walk(path):
-        for f in filenames:
-            files.append(os.path.join(dirpath, f))
-    return files
-
-
-def create_proto(proto_type, empty, output_file):
-    desc = get_message_type_descriptor(proto_type)
-    message = create_template_message(desc, empty)
-    json = json_format.MessageToJson(message, including_default_value_fields=True)
-    edited_json = interactive_edit_message(json)
-    resulting_message = json_format.Parse(edited_json, desc._concrete_class())
-    result = resulting_message.SerializeToString()
-    if output_file:
-        with open(output_file, "wb") as f:
-            f.write(result)
-    else:
-        print(result)
-
-
-def get_message_type_descriptor(message_type_name):
-    import_path = os.path.expanduser("~/.protopad/compiled")
-    options = []
-    for loader, module_name, is_pkg in pkgutil.walk_packages([import_path]):
-        try:
-            module = loader.find_module(module_name).load_module(module_name)
-            descriptor = getattr(module, "DESCRIPTOR", None)
-            if descriptor:
-                for message_type, message_desc in descriptor.message_types_by_name.items():
-                    options.append((message_type, message_desc, module_name))
-        except AssertionError:
-            continue
-
-    selection = [option for option in options if option[0] == message_type_name]
-    if not selection:
-        print(f"Unknown message type '{message_type_name}'")
-        exit(1)
-
-    sel = selection[0]
-    return sel[1]
+    return base
 
 
 def interactive_edit_message(message_json):
@@ -164,34 +264,64 @@ if __name__ == "__main__":
             prog="protopad",
             usage="create protobuf files from the terminal")
 
+    parser.add_argument(
+            "--verbose", "-v", help="enable verbose logging", action="store_true")
+
     subparsers = parser.add_subparsers(help="subcommands")
 
-    create_parser = subparsers.add_parser(
-            "create", help="create a new protobuf message interactively")
-    create_parser.set_defaults(task="create")
-    create_parser.add_argument(
-            "type", help="the name of the protobuf message type")
-    create_parser.add_argument(
-            "--empty", "-e", action="store_true", help="default all nullable fields to null in template")
-    create_parser.add_argument(
-            "--output", "-o", help="the file to write to")
-
-    read_parser = subparsers.add_parser(
-            "read", help="read a protobuf message and output JSON")
-    read_parser.set_defaults(task="read")
-    read_parser.add_argument(
-            "type", help="the name of the protobuf message type")
-    read_parser.add_argument(
+    json_cmd_parser = subparsers.add_parser(
+            "json", help="read a JSON or protobuf message and output JSON")
+    json_cmd_parser.set_defaults(task="json")
+    json_cmd_parser.add_argument(
+            "type", help="the protobuf message type")
+    json_cmd_parser.add_argument(
             "file", help="the file to read, or stdin if not specified", nargs="?")
+    json_cmd_parser.add_argument(
+            "--output", "-o", help="a file to write to, or stdout if not specified")
 
-    register_parser = subparsers.add_parser(
+    proto_cmd_parser = subparsers.add_parser(
+            "proto", help="read a JSON or protobuf message and output protobuf")
+    proto_cmd_parser.set_defaults(task="proto")
+    proto_cmd_parser.add_argument(
+            "type", help="the protobuf message type")
+    proto_cmd_parser.add_argument(
+            "file", help="the file to read, or stdin if not specified", nargs="?")
+    proto_cmd_parser.add_argument(
+            "--output", "-o", help="a file to write to, or stdout if not specified")
+
+    edit_cmd_parser = subparsers.add_parser(
+            "edit", help="create or edit a protobuf message in an editor")
+    edit_cmd_parser.set_defaults(task="edit")
+    edit_cmd_parser.add_argument(
+            "type", help="the protobuf message type")
+    edit_cmd_parser.add_argument(
+            "file", help="an input file to use as a template, or a default message if not specified", nargs="?")
+    edit_cmd_parser.add_argument(
+            "--empty", "-e",
+            help="if --input is not specified, uses a completely empty message instead of the default",
+            action="store_true")
+    edit_cmd_parser.add_argument(
+            "--output", "-o", help="a file to write to, or stdout if not specified")
+
+    register_cmd_parser = subparsers.add_parser(
             "register", help="register a folder of protobuf definitions")
-    register_parser.set_defaults(task="register")
-    register_parser.add_argument(
-            "path", help="path to a folder containing protobuf definitions (searched recursively)")
+    register_cmd_parser.set_defaults(task="register")
+    register_group = register_cmd_parser.add_mutually_exclusive_group(required=True)
+    register_group.add_argument(
+            "path", help="path to a folder containing protobuf definitions (searched recursively)", nargs="?")
+    register_group.add_argument(
+            "--list", "-l", help="list the paths that are currently registered",
+            action="store_true")
+    register_group.add_argument(
+            "--recompile",
+            help="recompiles registered proto definitions (this happens automatically when registering)",
+            action="store_true")
+    register_cmd_parser.add_argument(
+            "--remove", "-r", help="un-register this path",
+            action="store_true")
 
     args = vars(parser.parse_args())
-    if not args:
+    if "task" not in args:
         parser.print_help()
         exit(2)
     protopad(args)
