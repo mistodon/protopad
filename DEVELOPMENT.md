@@ -11,3 +11,4 @@
 5.  [x] Handle ambiguity in types
 6.  [x] Ensure stdout and stderr are being used properly
 7.  [x] Write README documentation
+8.  [ ] Set up linting?
