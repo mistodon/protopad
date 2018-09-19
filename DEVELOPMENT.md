@@ -7,4 +7,6 @@
     -   [ ] Wrong external type specified
     -   [ ] Wrong internal type specified
 4.  [ ] Add unit tests
-5.  [ ] Handle ambiguity in types
+5.  [x] Handle ambiguity in types
+6.  [ ] Ensure stdout and stderr are being used properly
+7.  [ ] Write README documentation

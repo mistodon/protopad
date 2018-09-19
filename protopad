@@ -50,6 +50,10 @@ class Protopad:
             print(text)
 
     def get_message_type_descriptor(self, message_type_name):
+        split_name = message_type_name.rsplit(".", 1)
+        message_type_name = split_name[-1]
+        prefix = split_name[0] if len(split_name) > 1 else ""
+
         import_path = os.path.expanduser("~/.protopad/compiled")
         options = []
         for loader, module_name, is_pkg in pkgutil.walk_packages([import_path]):
@@ -72,12 +76,18 @@ class Protopad:
             print("Check your registered paths with `protopad register --list`")
             exit(1)
 
-        selection = [option for option in options if option[0] == message_type_name]
+        selection = [option
+                for option in options
+                if option[0] == message_type_name and prefix in option[2]]
+
         if not selection:
             print(f"Unknown message type '{message_type_name}'")
             exit(1)
         elif len(selection) > 1:
-            print(f"Message type '{message_type_name}' is ambiguous. (TODO: allow specifying which to use)")
+            print(f"Message type '{message_type_name}' is ambiguous. Possibilities are:")
+            for (name, _, module_name) in selection:
+                print(f"- {module_name}.{name}")
+            print(f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
             exit(1)
 
         (_, desc, _) = selection[0]
