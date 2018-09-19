@@ -10,10 +10,33 @@ import pprint
 import shutil
 import subprocess
 import sys
-import tempfile
 
 
 DOTFILE_PATH = os.path.expanduser("~/.protopad/config.json")
+TEMPFILE_PATH = os.path.expanduser("~/.protopad/temp.json")
+
+
+def protopad(args):
+    app = Protopad(args["verbose"])
+
+    message_type_descriptor = app.get_message_type_descriptor(args["type"]) if "type" in args else None
+
+    task = args["task"]
+    if task == "json":
+        app.read_to_json(message_type_descriptor, args.get("file"), args.get("output"))
+    elif task == "proto":
+        app.read_to_proto(message_type_descriptor, args.get("file"), args.get("output"))
+    elif task == "edit":
+        app.edit_message(message_type_descriptor, args.get("file"), args.get("output"), args["empty"], args["recent"])
+    elif task == "register":
+        if args["list"]:
+            app.list_registered_paths()
+        elif args["recompile"]:
+            app.recompile_protos()
+        else:
+            app.register_proto_path(args["path"], args["remove"])
+    else:
+        assert False, "Unreachable code!"
 
 
 class Protopad:
@@ -81,8 +104,9 @@ class Protopad:
             sys.stdout.buffer.write(result)
 
 
-    def edit_message(self, message_type_descriptor, infile, outfile, empty):
-        base = read_any_input(message_type_descriptor, infile) if infile else create_template_message(message_type_descriptor, empty)
+    def edit_message(self, message_type_descriptor, infile, outfile, empty, recent):
+        filename = TEMPFILE_PATH if recent else infile
+        base = read_any_input(message_type_descriptor, filename) if filename else create_template_message(message_type_descriptor, empty)
         json = json_format.MessageToJson(base, including_default_value_fields=True)
 
         self.log("Launching editor... (quit editor when finished)")
@@ -172,29 +196,6 @@ class Protopad:
         self.log("Done.")
 
 
-def protopad(args):
-    app = Protopad(args["verbose"])
-
-    message_type_descriptor = app.get_message_type_descriptor(args["type"]) if "type" in args else None
-
-    task = args["task"]
-    if task == "json":
-        app.read_to_json(message_type_descriptor, args.get("file"), args.get("output"))
-    elif task == "proto":
-        app.read_to_proto(message_type_descriptor, args.get("file"), args.get("output"))
-    elif task == "edit":
-        app.edit_message(message_type_descriptor, args.get("file"), args.get("output"), args["empty"])
-    elif task == "register":
-        if args["list"]:
-            app.list_registered_paths()
-        elif args["recompile"]:
-            app.recompile_protos()
-        else:
-            app.register_proto_path(args["path"], args["remove"])
-    else:
-        assert False, "Unreachable code!"
-
-
 def read_any_input(message_type_descriptor, filename=None):
     if filename:
         with open(filename, "rb") as f:
@@ -214,19 +215,14 @@ def read_any_input(message_type_descriptor, filename=None):
 
 def interactive_edit_message(message_json):
     editor = os.environ["EDITOR"]
-    temp_dir = tempfile.mkdtemp()
-    filepath = os.path.join(temp_dir, "protopad.json")
 
-    with open(filepath, "w") as f:
+    with open(TEMPFILE_PATH, "w") as f:
         f.write(message_json)
 
-    result = subprocess.run(f"{editor} {filepath}", shell=True)
+    result = subprocess.run(f"{editor} {TEMPFILE_PATH}", shell=True)
 
-    with open(filepath, "r") as f:
+    with open(TEMPFILE_PATH, "r") as f:
         edited_result = f.read()
-
-    os.remove(filepath)
-    os.rmdir(temp_dir)
 
     return edited_result
 
@@ -294,11 +290,15 @@ if __name__ == "__main__":
     edit_cmd_parser.set_defaults(task="edit")
     edit_cmd_parser.add_argument(
             "type", help="the protobuf message type")
-    edit_cmd_parser.add_argument(
+    edit_group = edit_cmd_parser.add_mutually_exclusive_group()
+    edit_group.add_argument(
             "file", help="an input file to use as a template, or a default message if not specified", nargs="?")
-    edit_cmd_parser.add_argument(
+    edit_group.add_argument(
             "--empty", "-e",
-            help="if --input is not specified, uses a completely empty message instead of the default",
+            help="use a completely empty message instead of the default",
+            action="store_true")
+    edit_group.add_argument(
+            "--recent", help="use the most recently edit as a templte",
             action="store_true")
     edit_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
