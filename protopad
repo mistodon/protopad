@@ -243,10 +243,10 @@ def read_any_input(message_desc, internal_desc, filename=None):
         with open(filename, "rb") as f:
             data = f.read()
     else:
-        data = sys.stdin.read()
+        data = sys.stdin.buffer.read()
 
     try:
-        return json_to_proto(data, message_desc, internal_desc)
+        return json_to_proto(data.decode("utf-8"), message_desc, internal_desc)
     except:
         base = message_desc._concrete_class()
         parse_proto_or_fail(base, data,
