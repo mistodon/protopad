@@ -21,7 +21,7 @@ def eprint(*args, **kwargs):
 
 
 def fail(status, message):
-    eprint(message)
+    eprint("protopad: " + message)
     exit(status)
 
 
@@ -246,11 +246,12 @@ def read_any_input(message_desc, internal_desc, filename=None):
         data = sys.stdin.buffer.read()
 
     try:
-        return json_to_proto(data.decode("utf-8"), message_desc, internal_desc)
+        json = data.decode("utf-8")
+        return json_to_proto(json, message_desc, internal_desc)
     except:
         base = message_desc._concrete_class()
         parse_proto_or_fail(base, data,
-                f"Failed to decode input as {message_desc.name}")
+                f"Failed to decode input as the message type `{message_desc.name}`. The data may be of another message type.")
         return base
 
 
@@ -409,6 +410,7 @@ if __name__ == "__main__":
             "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     # edit command
+    # TODO: Require output file by default, add a flag to output to stdout. Or fix pipes?
     edit_cmd_parser = subparsers.add_parser(
             "edit", help="create or edit a protobuf message in an editor")
     edit_cmd_parser.set_defaults(task="edit")
