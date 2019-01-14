@@ -442,7 +442,7 @@ if __name__ == "__main__":
             "--list", "-l", help="list the paths that are currently registered",
             action="store_true")
     register_group.add_argument(
-            "--recompile",
+            "--recompile", "-c",
             help="recompiles registered proto definitions (this happens automatically when registering)",
             action="store_true")
     register_cmd_parser.add_argument(
