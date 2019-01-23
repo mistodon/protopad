@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -e
+
+echo "Compiling protobuf..."
+protoc tests/testdata.proto --python_out .
+echo "    Done."
+
+echo "Running tests:"
+PYTHONPATH="$PYTHONPATH:$(pwd)" pytest

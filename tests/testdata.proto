@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+message TestMessage {
+    string text = 1;
+}
+
+message Outer {
+    bytes inner = 1;
+}
+
+message Inner {
+    int32 number = 1;
+}
