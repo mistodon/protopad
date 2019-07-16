@@ -48,19 +48,19 @@ $ protopad register ~/path/to/protos --remove
 You can pass either protobuf or JSON, and it will output in JSON.
 
 ```bash
-$ protopad json MessageType my_protobuf_binary
-$ protopad json MessageType my_file.json
+$ protopad json my_protobuf_binary --type MessageType
+$ protopad json my_file.json --type MessageType
 
-$ protopad json MessageType my_protobuf_binary --output new_file.json
-$ protopad json MessageType my_protobuf_binary > new_file.json
+$ protopad json my_protobuf_binary -t MessageType --output new_file.json
+$ protopad json my_protobuf_binary -t MessageType > new_file.json
 
-$ cat my_protobuf_binary | protopad json MessageType
+$ cat my_protobuf_binary | protopad json -t MessageType
 ```
 
 If `MessageType` is ambiguous, you can resolve it by adding any unambiguous prefix. For example, if you have both `request.types.Data` and `response.types.Data`, you could use:
 
 ```bash
-$ protopad json request.Data my_protobuf_binary
+$ protopad json my_protobuf_binary -t request.Data
 ```
 
 ### Converting files to protobuf
@@ -68,22 +68,24 @@ $ protopad json request.Data my_protobuf_binary
 You can pass either protobuf or JSON, and it will output protobuf.
 
 ```bash
-$ protopad proto MessageType my_file.json
-$ protopad proto MessageType my_protobuf_binary
-$ protopad proto package.MessageType my_protobuf_binary
+$ protopad proto my_file.json -t MessageType
+$ protopad proto my_protobuf_binary -t MessageType
+$ protopad proto my_protobuf_binary -t package.MessageType
 
-$ protopad proto MessageType my_file.json --output new_binary_file
-$ protopad proto MessageType my_file.json > new_binary_file
+$ protopad proto my_file.json -t MessageType -o new_binary_file
+$ protopad proto my_file.json -t MessageType > new_binary_file
 
-$ cat my_file.json | protopad proto MessageType
+$ cat my_file.json | protopad proto -t MessageType
 ```
 
 ### Editing files
 
 The `edit` command allows you to open a JSON template in an editor, modify it, then output it as protobuf. By default the editor to open is taken from the `$EDITOR` environment variable, but you can also select your own command with the `--editor EDITOR` flag.
 
+Note that you cannot use pipes and so the `-o` (or `--output`) flag is required.
+
 ```bash
-$ protopad edit MessageType my_protobuf_binary --output new_binary_file
+$ protopad edit my_protobuf_binary -t MessageType -o new_binary_file
 ```
 
 The above command will open the editor with the contents of `my_protobuf_binary` as JSON. You can edit it, save, and close the editor. The new contents will be converted to protobuf and saved to `new_binary_file`.
@@ -92,13 +94,13 @@ There are other variations:
 
 ```bash
 # Edit a default instance of MessageType
-$ protopad edit MessageType
+$ protopad edit -t MessageType
 
 # Edit an empty instance of MessageType (all message-type fields empty)
-$ protopad edit MessageType --empty
+$ protopad edit -t MessageType --empty
 
 # Edit with the contents of the most recently edited file
-$ protopad edit MessageType --recent
+$ protopad edit -t MessageType --recent
 ```
 
 #### Editor commands
@@ -141,9 +143,11 @@ message ContentsType {
 You could parse/edit it with any of the following commands:
 
 ```bash
-$ protopad json ContainerType my_file.json --internal-type ContentsType
-$ protopad proto ContainerType my_file.json --internal-type ContentsType
-$ protopad edit ContainerType my_file.json --internal-type ContentsType
+$ protopad json my_file.json --type ContainerType --internal-type ContentsType
+$ protopad proto my_file.json --type ContentsType --internal-type ContentsType
+$ protopad edit my_file.json --type ContentsType --internal-type ContentsType
+
+$ protopad edit my_file.json -t ContentsType -i ContentsType
 ```
 
 The `--internal-type` (or `-i`) flag is telling the app that the "real" type of `blob_data` is `ContentsType`. It automatically handles serialization between `ContentsType` and `bytes` as needed.
