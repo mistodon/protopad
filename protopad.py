@@ -375,7 +375,8 @@ def ensure_dotfiles_exist():
 
 def main():
     from google.protobuf import __version__ as protobuf_version
-    if not protobuf_version.startswith("3.6"):
+    major, minor, _ = [int(part) for part in protobuf_version.split(".")]
+    if major < 3 or minor < 6:
         eprint(f"protopad: Incompatible version of protobuf installed: {protobuf_version}. Requires at least version 3.6.0.")
         eprint("protopad: Try running `pip install -r requirements.txt` in the protopad repo to install the correct version.")
         exit(1)
