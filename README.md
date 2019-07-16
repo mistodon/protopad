@@ -94,13 +94,13 @@ There are other variations:
 
 ```bash
 # Edit a default instance of MessageType
-$ protopad edit -t MessageType
+$ protopad edit -t MessageType -o output
 
 # Edit an empty instance of MessageType (all message-type fields empty)
-$ protopad edit -t MessageType --empty
+$ protopad edit -t MessageType --empty -o output
 
 # Edit with the contents of the most recently edited file
-$ protopad edit -t MessageType --recent
+$ protopad edit -t MessageType --recent -o output
 ```
 
 #### Editor commands
@@ -145,9 +145,9 @@ You could parse/edit it with any of the following commands:
 ```bash
 $ protopad json my_file.json --type ContainerType --internal-type ContentsType
 $ protopad proto my_file.json --type ContentsType --internal-type ContentsType
-$ protopad edit my_file.json --type ContentsType --internal-type ContentsType
+$ protopad edit my_file.json --type ContentsType --internal-type ContentsType -o output
 
-$ protopad edit my_file.json -t ContentsType -i ContentsType
+$ protopad edit my_file.json -t ContentsType -i ContentsType -o output
 ```
 
 The `--internal-type` (or `-i`) flag is telling the app that the "real" type of `blob_data` is `ContentsType`. It automatically handles serialization between `ContentsType` and `bytes` as needed.
