@@ -396,11 +396,11 @@ def main():
             "json", help="read a JSON or protobuf message and output JSON")
     json_cmd_parser.set_defaults(task="json")
     json_cmd_parser.add_argument(
-            "type", help="the protobuf message type")
-    json_cmd_parser.add_argument(
             "file", help="the file to read, or stdin if not specified", nargs="?")
     json_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
+    json_cmd_parser.add_argument(
+            "--type", "-t", help="the protobuf message type", required=True)
     json_cmd_parser.add_argument(
             "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
@@ -409,21 +409,19 @@ def main():
             "proto", help="read a JSON or protobuf message and output protobuf")
     proto_cmd_parser.set_defaults(task="proto")
     proto_cmd_parser.add_argument(
-            "type", help="the protobuf message type")
-    proto_cmd_parser.add_argument(
             "file", help="the file to read, or stdin if not specified", nargs="?")
     proto_cmd_parser.add_argument(
             "--output", "-o", help="a file to write to, or stdout if not specified")
     proto_cmd_parser.add_argument(
+            "--type", "-t", help="the protobuf message type", required=True)
+    proto_cmd_parser.add_argument(
             "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     # edit command
-    # TODO: Require output file by default, add a flag to output to stdout. Or fix pipes?
+    # TODO: Fix pipes? Add warning?
     edit_cmd_parser = subparsers.add_parser(
             "edit", help="create or edit a protobuf message in an editor")
     edit_cmd_parser.set_defaults(task="edit")
-    edit_cmd_parser.add_argument(
-            "type", help="the protobuf message type")
     edit_group = edit_cmd_parser.add_mutually_exclusive_group()
     edit_group.add_argument(
             "file", help="an input file to use as a template, or a default message if not specified", nargs="?")
@@ -435,7 +433,9 @@ def main():
             "--recent", help="use the most recent edit as a template",
             action="store_true")
     edit_cmd_parser.add_argument(
-            "--output", "-o", help="a file to write to, or stdout if not specified")
+            "--output", "-o", help="a file to write to, or stdout if not specified", required=True)
+    edit_cmd_parser.add_argument(
+            "--type", "-t", help="the protobuf message type", required=True)
     edit_cmd_parser.add_argument(
             "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
     edit_cmd_parser.add_argument(
