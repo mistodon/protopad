@@ -43,20 +43,25 @@ def get_json_name(pyname):
 def protopad(args):
     app = Protopad(args["verbose"])
 
-    message_desc = app.get_message_desc(args["type"]) if "type" in args else None
+    message_desc = app.get_message_desc(
+        args["type"]) if "type" in args else None
     internal_type = args.get("internal_type")
-    internal_desc = app.get_message_desc(internal_type) if internal_type else None
+    internal_desc = app.get_message_desc(
+        internal_type) if internal_type else None
 
     command = args["task"]
     if command == "json":
-        app.read_to_json(message_desc, internal_desc, args.get("file"), args.get("output"))
+        app.read_to_json(message_desc, internal_desc,
+                         args.get("file"), args.get("output"))
     elif command == "proto":
-        app.read_to_proto(message_desc, internal_desc, args.get("file"), args.get("output"))
+        app.read_to_proto(message_desc, internal_desc,
+                          args.get("file"), args.get("output"))
     elif command == "edit":
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             fail(1, "Cannot use terminal pipes with the edit command.\n"
                     "Use the `file` and `--output` parameters instead.")
-        app.edit_message(message_desc, internal_desc, args.get("file"), args.get("output"), args["empty"], args["recent"], args.get("editor"))
+        app.edit_message(message_desc, internal_desc, args.get("file"), args.get(
+            "output"), args["empty"], args["recent"], args.get("editor"))
     elif command == "register":
         if args["list"]:
             app.list_registered_paths()
@@ -86,12 +91,14 @@ class Protopad:
         for loader, module_name, is_pkg in pkgutil.walk_packages([import_path]):
             try:
                 self.log(f"Loading module: {module_name}")
-                module = loader.find_module(module_name).load_module(module_name)
+                module = loader.find_module(
+                    module_name).load_module(module_name)
                 descriptor = getattr(module, "DESCRIPTOR", None)
                 if descriptor:
                     for message_type, message_desc in descriptor.message_types_by_name.items():
                         self.log(f"  Found message type: {message_type}")
-                        options.append((message_type, message_desc, module_name))
+                        options.append(
+                            (message_type, message_desc, module_name))
                 else:
                     self.log(f"  No descriptor in module.")
             except AssertionError:
@@ -103,20 +110,21 @@ class Protopad:
                     "Check your registered paths with `protopad register --list`")
 
         selection = [option
-                for option in options
-                if option[0] == message_type_name and prefix in option[2]]
+                     for option in options
+                     if option[0] == message_type_name and prefix in option[2]]
 
         if not selection:
             fail(1, f"Unknown message type '{message_type_name}'")
         elif len(selection) > 1:
-            eprint(f"Message type '{message_type_name}' is ambiguous. Possibilities are:")
+            eprint(
+                f"Message type '{message_type_name}' is ambiguous. Possibilities are:")
             for (name, _, module_name) in selection:
                 eprint(f"- {module_name}.{name}")
-            fail(1, f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
+            fail(
+                1, f"Add any unambiguous prefix to the type name to specify. (e.g. `prefix.TypeName`)")
 
         (_, desc, _) = selection[0]
         return desc
-
 
     def read_to_json(self, message_desc, internal_desc, infile, outfile):
         base = read_any_input(message_desc, internal_desc, infile)
@@ -128,7 +136,6 @@ class Protopad:
         else:
             print(result)
 
-
     def read_to_proto(self, message_desc, internal_desc, infile, outfile):
         base = read_any_input(message_desc, internal_desc, infile)
         result = base.SerializeToString()
@@ -139,20 +146,23 @@ class Protopad:
         else:
             sys.stdout.buffer.write(result)
 
-
     def edit_message(self, message_desc, internal_desc,
-            infile, outfile, empty, recent, editor_command):
+                     infile, outfile, empty, recent, editor_command):
         filename = TEMPFILE_PATH if recent else infile
-        base = read_any_input(message_desc, internal_desc, filename) if filename else create_template_message(message_desc, empty)
+        base = read_any_input(message_desc, internal_desc,
+                              filename) if filename else create_template_message(message_desc, empty)
 
         # TODO: Use create_template_message for empty binary entries.
-        json = proto_to_json(base, internal_desc, including_default_value_fields=True)
+        json = proto_to_json(base, internal_desc,
+                             including_default_value_fields=True)
 
         self.log("Launching editor... (quit editor when finished)")
-        edited_json = interactive_edit_message(json, editor_command=editor_command)
+        edited_json = interactive_edit_message(
+            json, editor_command=editor_command)
         self.log("Done.")
 
-        resulting_message = json_to_proto(edited_json, message_desc, internal_desc)
+        resulting_message = json_to_proto(
+            edited_json, message_desc, internal_desc)
         result = resulting_message.SerializeToString()
 
         if outfile:
@@ -168,7 +178,6 @@ class Protopad:
         paths = set(config.get("paths", []))
         for path in paths:
             print(path)
-
 
     def register_proto_path(self, path, remove):
         assert path is not None
@@ -196,7 +205,6 @@ class Protopad:
 
         self.recompile_protos()
 
-
     def recompile_protos(self):
         self.log("Recompiling proto definitions...")
         with open(DOTFILE_PATH, "r") as f:
@@ -223,7 +231,6 @@ class Protopad:
 
         self.log("")
         self.generate_module_roots()
-
 
     def generate_module_roots(self):
         self.log("Generating module roots...")
@@ -253,7 +260,7 @@ def parse_any_input(data, message_desc, internal_desc):
     except:
         base = message_desc._concrete_class()
         parse_proto_or_fail(base, data,
-                f"Failed to decode input as the message type `{message_desc.name}`. The data may be of another message type.")
+                            f"Failed to decode input as the message type `{message_desc.name}`. The data may be of another message type.")
         return base
 
 
@@ -268,8 +275,8 @@ def json_to_proto(json, message_desc, internal_desc):
 
 def proto_to_json(message, internal_desc, including_default_value_fields=False):
     json_encoded = json_format.MessageToJson(
-            message,
-            including_default_value_fields=including_default_value_fields)
+        message,
+        including_default_value_fields=including_default_value_fields)
 
     if internal_desc is None:
         return json_encoded
@@ -284,13 +291,14 @@ def proto_to_json(message, internal_desc, including_default_value_fields=False):
                 obj.pop(json_field_name)
                 internal_message = internal_desc._concrete_class()
                 parse_proto_or_fail(internal_message, internal_bytes,
-                        f"Failed to decode internal type as {internal_desc.name}.")
+                                    f"Failed to decode internal type as {internal_desc.name}.")
                 internal_message_json = json_format.MessageToJson(
-                        internal_message,
-                        including_default_value_fields=including_default_value_fields)
+                    internal_message,
+                    including_default_value_fields=including_default_value_fields)
                 obj[json_field_name] = json.loads(internal_message_json)
             elif field.message_type:
-                unpack_internals(field.message_type, getattr(message, field.name), obj[json_field_name])
+                unpack_internals(field.message_type, getattr(
+                    message, field.name), obj[json_field_name])
 
     unpack_internals(message.DESCRIPTOR, message, data)
 
@@ -309,10 +317,12 @@ def extract_internal_protos(json_string, base_message, internal_desc):
                 internal_obj = obj.pop(json_field_name)
                 internal_json = json.dumps(internal_obj)
                 internal_base = internal_desc._concrete_class()
-                internal_message = json_format.Parse(internal_json, internal_base)
+                internal_message = json_format.Parse(
+                    internal_json, internal_base)
                 internals.append((field_path, internal_message))
             elif field.message_type:
-                extract_internals(field.message_type, obj[json_field_name], internals, field_path)
+                extract_internals(field.message_type,
+                                  obj[json_field_name], internals, field_path)
 
     desc = base_message.DESCRIPTOR
     data = json.loads(json_string)
@@ -352,7 +362,8 @@ def create_template_message(message_descriptor, empty):
         for field in message_descriptor.fields:
             if field.message_type:
                 if field.label == FieldDescriptor.LABEL_REPEATED:
-                    placeholder_value = create_template_message(field.message_type, False)
+                    placeholder_value = create_template_message(
+                        field.message_type, False)
                     field_container = getattr(base, field.name, None)
                     try:
                         # Repeated type
@@ -362,7 +373,8 @@ def create_template_message(message_descriptor, empty):
                         # Map type - leave blank for now
                         pass
                 else:
-                    getattr(base, field.name).MergeFrom(create_template_message(field.message_type, False))
+                    getattr(base, field.name).MergeFrom(
+                        create_template_message(field.message_type, False))
     return base
 
 
@@ -377,88 +389,92 @@ def main():
     from google.protobuf import __version__ as protobuf_version
     major, minor, _ = [int(part) for part in protobuf_version.split(".")]
     if major < 3 or minor < 6:
-        eprint(f"protopad: Incompatible version of protobuf installed: {protobuf_version}. Requires at least version 3.6.0.")
+        eprint(
+            f"protopad: Incompatible version of protobuf installed: {protobuf_version}. Requires at least version 3.6.0.")
         eprint("protopad: Try running `pip install -r requirements.txt` in the protopad repo to install the correct version.")
         exit(1)
 
     ensure_dotfiles_exist()
 
     parser = argparse.ArgumentParser(
-            prog="protopad",
-            description="create protobuf files from the terminal")
+        prog="protopad",
+        description="create protobuf files from the terminal")
 
     parser.add_argument(
-            "--verbose", "-v", help="enable verbose logging", action="store_true")
+        "--verbose", "-v", help="enable verbose logging", action="store_true")
+    parser.add_argument(
+        "--version", "-V", action="version", version="0.9.0")
 
     subparsers = parser.add_subparsers(help="subcommands")
 
     # json command
     json_cmd_parser = subparsers.add_parser(
-            "json", help="read a JSON or protobuf message and output JSON")
+        "json", help="read a JSON or protobuf message and output JSON")
     json_cmd_parser.set_defaults(task="json")
     json_cmd_parser.add_argument(
-            "file", help="the file to read, or stdin if not specified", nargs="?")
+        "file", help="the file to read, or stdin if not specified", nargs="?")
     json_cmd_parser.add_argument(
-            "--output", "-o", help="a file to write to, or stdout if not specified")
+        "--output", "-o", help="a file to write to, or stdout if not specified")
     json_cmd_parser.add_argument(
-            "--type", "-t", help="the protobuf message type", required=True)
+        "--type", "-t", help="the protobuf message type", required=True)
     json_cmd_parser.add_argument(
-            "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
+        "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     # proto command
     proto_cmd_parser = subparsers.add_parser(
-            "proto", help="read a JSON or protobuf message and output protobuf")
+        "proto", help="read a JSON or protobuf message and output protobuf")
     proto_cmd_parser.set_defaults(task="proto")
     proto_cmd_parser.add_argument(
-            "file", help="the file to read, or stdin if not specified", nargs="?")
+        "file", help="the file to read, or stdin if not specified", nargs="?")
     proto_cmd_parser.add_argument(
-            "--output", "-o", help="a file to write to, or stdout if not specified")
+        "--output", "-o", help="a file to write to, or stdout if not specified")
     proto_cmd_parser.add_argument(
-            "--type", "-t", help="the protobuf message type", required=True)
+        "--type", "-t", help="the protobuf message type", required=True)
     proto_cmd_parser.add_argument(
-            "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
+        "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
 
     # edit command
-    # TODO: Fix pipes? Add warning?
+    # TODO: Fix pipes?
     edit_cmd_parser = subparsers.add_parser(
-            "edit", help="create or edit a protobuf message in an editor")
+        "edit", help="create or edit a protobuf message in an editor")
     edit_cmd_parser.set_defaults(task="edit")
     edit_group = edit_cmd_parser.add_mutually_exclusive_group()
     edit_group.add_argument(
-            "file", help="an input file to use as a template, or a default message if not specified", nargs="?")
+        "file", help="an input file to use as a template, or a default message if not specified", nargs="?")
     edit_group.add_argument(
-            "--empty", "-e",
-            help="use a completely empty message instead of the default",
-            action="store_true")
+        "--empty", "-e",
+        help="use a completely empty message instead of the default",
+        action="store_true")
     edit_group.add_argument(
-            "--recent", help="use the most recent edit as a template",
-            action="store_true")
+        "--recent", help="use the most recent edit as a template",
+        action="store_true")
     edit_cmd_parser.add_argument(
-            "--output", "-o", help="a file to write to, or stdout if not specified", required=True)
+        "--output", "-o", help="a file to write to, or stdout if not specified", required=True)
     edit_cmd_parser.add_argument(
-            "--type", "-t", help="the protobuf message type", required=True)
+        "--type", "-t", help="the protobuf message type", required=True)
     edit_cmd_parser.add_argument(
-            "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
+        "--internal-type", "-i", help="the protobuf message type represented by any bytes-type fields, if any")
     edit_cmd_parser.add_argument(
-            "--editor", help="the editor command to use, or $EDITOR by default")
+        "--editor", help="the editor command to use, or $EDITOR by default")
 
     # register command
     register_cmd_parser = subparsers.add_parser(
-            "register", help="register a folder of protobuf definitions")
+        "register", help="register a folder of protobuf definitions")
     register_cmd_parser.set_defaults(task="register")
-    register_group = register_cmd_parser.add_mutually_exclusive_group(required=True)
+    register_group = register_cmd_parser.add_mutually_exclusive_group(
+        required=True)
     register_group.add_argument(
-            "path", help="path to a folder containing protobuf definitions (searched recursively)", nargs="?")
+        "path", help="path to a folder containing protobuf definitions (searched recursively)", nargs="?")
     register_group.add_argument(
-            "--list", "-l", help="list the paths that are currently registered",
-            action="store_true")
+        "--list", "-l", help="list the paths that are currently registered",
+        action="store_true")
     register_group.add_argument(
-            "--recompile", "-c",
-            help="recompiles registered proto definitions (this happens automatically when registering)",
-            action="store_true")
+        "--recompile", "-c",
+        help="recompiles registered proto definitions (this happens automatically when registering)",
+        action="store_true")
     register_cmd_parser.add_argument(
-            "--remove", "-r", help="un-register this path",
-            action="store_true")
+        "--remove", "-r", help="un-register this path",
+        action="store_true")
 
     args = vars(parser.parse_args())
     if "task" not in args:
