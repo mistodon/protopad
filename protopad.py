@@ -180,6 +180,7 @@ class Protopad:
             print(path)
 
     def register_proto_path(self, path, remove):
+        path = os.path.abspath(path)
         assert path is not None
         action = "Unregistering" if remove else "Registering"
         self.log(f"{action} path: {path}")
@@ -190,7 +191,11 @@ class Protopad:
         paths = set(config.get("paths", []))
 
         if remove:
-            paths.remove(path)
+            if path in paths:
+                paths.remove(path)
+            else:
+                fail(
+                    1, f"The path `{path}` is not registered and so can't be removed.")
         else:
             paths.add(path)
 
@@ -216,18 +221,41 @@ class Protopad:
         shutil.rmtree(output_dir, ignore_errors=True)
         os.makedirs(output_dir)
 
+        errors = []
+
         for path in paths:
             for (dirpath, _, filenames) in os.walk(path):
                 self.log(f"  Compiling modules in {dirpath}")
                 for filename in filenames:
-                    filename = os.path.join(dirpath, filename)
-                    command = f"protoc -I {path} --python_out {output_dir} {filename}"
-                    self.log(f"    Executing: {command}")
-                    stdoutdata = subprocess.getoutput(command)
+                    if os.path.splitext(filename)[1] == ".proto":
+                        filename = os.path.join(dirpath, filename)
+                        command = ["protoc", "-I", path,
+                                   "--python_out", output_dir, filename]
+                        command_string = " ".join(command)
+                        self.log(f"    Executing: {command_string}")
 
-                    if stdoutdata:
-                        self.log(f"      (protoc) {stdoutdata}")
-        self.log("Done.")
+                        output = subprocess.run(
+                            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                        failed = output.returncode != 0
+                        if output.stdout:
+                            if failed:
+                                message = f"    Failed: {command_string} {output.returncode}"
+                                errors.append(message)
+                                self.log(message)
+                            lines = output.stdout.decode().splitlines()
+                            for line in lines:
+                                message = f"      (protoc) {line}"
+                                if failed:
+                                    errors.append(message)
+                                self.log(message)
+
+        if errors:
+            eprint("  Compilation failed:")
+            for error in errors:
+                eprint(error)
+            fail(1, "protopad: Compilation failed for the above proto files.")
+        else:
+            self.log("Done.")
 
         self.log("")
         self.generate_module_roots()

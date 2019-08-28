@@ -6,7 +6,7 @@ Edit and convert protobuf messages to and from JSON.
 
 1.  Install dependencies: `pip install -r requirements.txt`
 2.  Add the `protopad` file to your path.
-    -   For example by adding `export PATH="$PATH:/path/to/protopad/repo"` to your .bashrc file
+    -   For example by adding `export PATH="$PATH:/path/to/protopad"` to your .bashrc file
 
 ## Usage
 
